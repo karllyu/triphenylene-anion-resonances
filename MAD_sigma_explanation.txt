@@ -1,0 +1,252 @@
+================================================================================
+MAD-SIGMA (ROBUST SIGMA): WHAT IT IS AND WHY IT WORKS
+Worked through on Automatic-RVP data, A2_root4_fit2
+================================================================================
+
+Notation used throughout:
+    x            a single value (here, the 'imag' column of clustering_input.csv)
+    median(x)    the middle value of the sorted list
+    MAD          Median Absolute Deviation = median( |x - median(x)| )
+    MAD-sigma    1.4826 x MAD          (also called "robust sigma")
+    std          ordinary standard deviation
+    k            the cut threshold, in units of MAD-sigma
+
+
+--------------------------------------------------------------------------------
+1. THE PROBLEM YOU ARE TRYING TO SOLVE
+--------------------------------------------------------------------------------
+
+You have 308 Pade roots. Most are the real resonance. A handful are numerical
+garbage. You want a rule that says "this point is too far out, drop it."
+
+Any such rule needs exactly two things:
+
+    1. A CENTER  -- too far out FROM WHERE?
+    2. A RULER   -- too far COMPARED TO WHAT?
+
+That is all. MAD-sigma is simply a particular choice of those two things.
+Everything else follows from that choice.
+
+
+--------------------------------------------------------------------------------
+2. THE OBVIOUS CHOICE, AND WHY IT FAILS
+--------------------------------------------------------------------------------
+
+The textbook answer is center = MEAN, ruler = STANDARD DEVIATION.
+For the 308 imag values in A2_root4_fit2:
+
+    mean = -1.806e-02        std = 9.470e-02
+
+Now look at where the points actually live:
+
+    the 8 most negative     the middle of the pack      the 5 largest
+      -8.149e-01              -5.970e-04                  -3.537e-05
+      -6.019e-01              -5.956e-04                  -7.981e-06
+      -5.914e-01              -5.908e-04  <-- median      -7.190e-06
+      -5.634e-01              -5.892e-04                  -5.419e-06
+      -5.154e-01              -5.821e-04                  -4.107e-06
+      -5.112e-01              -5.797e-04
+      -4.326e-01              -5.794e-04
+      -3.574e-01
+
+THE MEAN, -1.806e-02, IS NOT NEAR A SINGLE ONE OF THE 308 POINTS.
+It sits in empty space, roughly 30x further out than where the bulk lives.
+
+Why? Because 11 junk points at about -0.5 contribute roughly -5.0 to the sum,
+and -5.0 / 308 = -1.6e-02. Those 11 points -- 3.6% of the data -- ARE
+essentially the entire mean. The other 297 barely register.
+
+The std is worse still. It is built from SQUARED deviations, so a point that is
+1000x too far away contributes 1,000,000x too much.
+
+AND HERE IS THE TRAP:
+    You wanted to use the spread to identify the outliers.
+    But the outliers are what set the spread.
+    The bad points inflate the very ruler you were going to measure them with.
+
+It is circular. You are trying to catch a thief using a witness the thief
+bribed.
+
+
+--------------------------------------------------------------------------------
+3. WHAT MAD-SIGMA DOES INSTEAD
+--------------------------------------------------------------------------------
+
+Swap both choices for RANK-BASED ones -- quantities that depend on where values
+sit in the sorted order, not on how big they are.
+
+STEP 1 -- CENTER = THE MEDIAN.
+
+    Sort all 308 values, take the middle one:
+
+        median = -5.900e-04
+
+    That sits right in the thick of the data, where 99% of the points are.
+    Compare with the mean at -1.806e-02.
+
+STEP 2 -- MEASURE EVERY POINT'S DISTANCE FROM THAT MEDIAN.
+
+        |x - median|     for all 308 points
+
+STEP 3 -- RULER = THE MEDIAN OF THOSE DISTANCES.
+
+    This is the MAD, the Median Absolute Deviation. Sorting the distances:
+
+        smallest:  8.26e-07  8.26e-07  5.55e-06  6.96e-06  ...
+        middle one (#154 of 308):  2.139e-04    <-- this is the MAD
+        largest:   ...  5.63e-01  5.91e-01  6.01e-01  8.14e-01
+
+        MAD = 2.139e-04
+
+    LOOK AT WHAT JUST HAPPENED. The four largest deviations are 5.6e-01 to
+    8.1e-01 -- three to four orders of magnitude bigger than the MAD. And they
+    had ZERO effect on it. The MAD only asks "which distance sits in the middle
+    of the sorted list?" Making a big value even bigger does not move it out of
+    last place, so nothing changes.
+
+STEP 4 -- THE 1.4826 FACTOR.
+
+    The MAD is a perfectly good spread measure, but it is on a different scale
+    than std, so "MAD = 3" does not mean what "std = 3" means. For clean
+    Gaussian data, MAD comes out to about 0.6745 x sigma. Divide by that
+    (equivalently multiply by 1/0.6745 = 1.4826) and you get something that
+    lands on the same number std would give for clean data:
+
+        MAD-sigma = 1.4826 x 2.139e-04 = 3.171e-04
+
+    That is the ONLY purpose of the constant: a unit conversion, so that
+    "6 sigma" keeps its familiar meaning. On genuinely clean Gaussian data,
+    MAD-sigma and std agree to about three decimals (verified: 1.0022 vs
+    1.0012 on a clean Gaussian sample).
+
+
+--------------------------------------------------------------------------------
+4. THE CORE CONCEPT: BREAKDOWN POINT
+--------------------------------------------------------------------------------
+
+This is the one idea worth remembering.
+
+    BREAKDOWN POINT = what fraction of your data has to be garbage before the
+                      statistic itself becomes garbage.
+
+    MEAN and STD:     0%.
+        One bad point is enough. Push a single value to infinity and the mean
+        goes to infinity with it. Zero protection, by construction.
+
+    MEDIAN and MAD:   50%.
+        To drag the median off the bulk you would need to add more than 154 bad
+        points -- they would have to outnumber the good data. Eleven junk points
+        cannot do it. Neither could a hundred.
+
+That is the entire mechanism. MAD-SIGMA GIVES YOU A RULER THE OUTLIERS CANNOT
+STRETCH, which breaks the circularity, which is what lets a single pass work
+with no iteration.
+
+(This is also why classic sigma-clipping has to loop: it uses std, so pass one's
+ruler is corrupt, so you clip, re-measure, and clip again, hoping it converges.
+MAD needs no loop -- it is already correct the first time.)
+
+
+--------------------------------------------------------------------------------
+5. WHAT THIS LOOKS LIKE ON THE ACTUAL DATA
+--------------------------------------------------------------------------------
+
+The same 308 points, scored both ways:
+
+        value            robust sigmas       ordinary sigmas
+                         from median         from mean
+    ---------------------------------------------------------
+    -8.1492e-01              2568.1                8.414
+    -6.0185e-01              1896.1                6.164
+    -5.9137e-01              1863.1                6.054
+    -5.6341e-01              1774.9                5.758
+    -5.1539e-01              1623.5                5.251
+    -5.1122e-01              1610.3                5.207
+    -4.3261e-01              1362.4                4.377
+    -3.5738e-01              1125.2                3.583
+    -3.5366e-01              1113.4                3.544
+    -3.1253e-01               983.7                3.109
+    -3.0894e-01               972.4                3.072
+    -1.1136e-02                33.3                0.073
+    -1.0080e-02                29.9                0.084
+    -2.0073e-03                 4.5                0.170
+    ---------------------------------------------------------
+    -5.9698e-04 (typical)       0.0                0.184
+    -5.9557e-04 (typical)       0.0                0.184
+    -5.9084e-04 (typical)       0.0                0.184
+    -5.8919e-04 (typical)       0.0                0.184
+
+TWO THINGS TO NOTICE.
+
+(a) THE JUNK BARELY REGISTERS ON THE ORDINARY SCALE.
+    A point 2568 robust sigmas out reads as a mere 8.4 ordinary sigmas --
+    because it helped build the ruler measuring it. Points 972-1125 robust
+    sigmas out read as about 3, right at the conventional clipping threshold,
+    and would survive a standard 3-sigma cut.
+
+(b) TWO OUTLIERS ARE COMPLETELY INVISIBLE TO STD.
+    The points at -1.1136e-02 and -1.0080e-02 score 33 and 30 robust sigmas but
+    only 0.073 and 0.084 ORDINARY sigmas -- less than a tenth of one sigma. On
+    the ordinary scale they look MORE typical than a genuinely typical point
+    (0.184). A 3-sigma cut would never touch them.
+
+
+--------------------------------------------------------------------------------
+6. THE CONSEQUENCE THAT SURPRISES PEOPLE
+--------------------------------------------------------------------------------
+
+    6 robust sigma   = 1.903e-03   ->  window  -2.493e-03 .. +1.313e-03
+    3 ordinary sigma = 2.841e-01   ->  window  -3.022e-01 .. +2.661e-01
+
+    (actual data range: -8.1492e-01 .. -4.1067e-06)
+
+A 6-SIGMA ROBUST CUT IS 149x TIGHTER THAN A 3-SIGMA ORDINARY CUT.
+
+"Six sigma" sounds permissive and "three sigma" sounds strict, but the sigma is
+a different LENGTH in each case. The ordinary 3-sigma window is so wide that it
+spans nearly the entire data range including most of the junk -- it flags only
+11 points and misses the two subtle ones. The robust 6-sigma window hugs the
+actual data and catches all 13.
+
+So k = 6 is not a loose cut. It is a cut that is tight BECAUSE the ruler is
+honest.
+
+
+--------------------------------------------------------------------------------
+7. HOW IT TIES BACK TO THE PIPELINE
+--------------------------------------------------------------------------------
+
+Nothing above changes what gets REPORTED. MAD-sigma is used purely as a
+DETECTOR, not as a replacement for any statistic in the output. The flow is:
+
+    1. MAD-sigma identifies the 13 bad rows and drops them.
+
+    2. StandardScaler (src/clustering.py line 33) then computes its ORDINARY
+       std on the survivors -- and that std is now 3.28e-04 instead of
+       9.47e-02, a 289x correction, because the corruption is gone.
+
+    3. DBSCAN gets a sensibly scaled space, so the eps sweep explores properly
+       instead of collapsing after 16 iterations (the premature break at
+       src/clustering.py line 119).
+
+    4. The imag_coeff_of_var written to output.dat is still the ordinary
+       std/mean it always was -- but computed on a clean cluster, so it finally
+       comes in under the 6.5% gate.
+
+MAD-sigma appears once, does one job, and leaves no trace in the reported
+physics.
+
+
+--------------------------------------------------------------------------------
+8. THE RULE IN CODE FORM
+--------------------------------------------------------------------------------
+
+    med = np.median(x)
+    mad_sigma = 1.4826 * np.median(np.abs(x - med))
+    outlier = np.abs(x - med) > k * mad_sigma        # k = 6
+
+Applied to the 'real' and 'imag' columns only (the two DBSCAN actually
+clusters on), union across the two, single pass, with a guard to skip the
+column if mad_sigma == 0.
+
+================================================================================
