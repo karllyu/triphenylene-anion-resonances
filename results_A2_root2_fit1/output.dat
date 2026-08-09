@@ -1,5 +1,6 @@
-Number of points in input: 769
-Number of points after filtering: 367
+Number of points in input: 836
+Number of points after filtering: 451
 
  cluster  grade  real_mean   real_std   imag_mean   imag_std imag_coeff_of_var alpha_mean alpha_std theta_mean theta_std epsilon  size cluster_size_percentage
-   1      1.0   5.193592e-01 4.50e-05 -1.179908e-03 4.67e-05        3.96        4.30e-01   5.49e-04 -2.71e-02   2.32e-03  0.010   181           49.32         
+   1      1.0   2.259347e+00 6.84e-05 -4.775142e-04 1.51e-05        3.16        1.27e+00   4.33e-04 -2.74e-03   1.43e-04  0.023    63           13.97         
+   2      1.0   2.260361e+00 4.22e-05 -1.257523e-03 7.19e-05        5.72        1.27e+00   2.10e-04 -4.08e-03   1.94e-04  0.053    47           10.42         
