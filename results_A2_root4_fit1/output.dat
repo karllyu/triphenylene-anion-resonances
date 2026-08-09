@@ -1,0 +1,7 @@
+Number of points in input: 677
+Number of points after imag_err filter: 476
+Number of points rejected as outliers (6 robust sigma on real and imag): 39
+Number of points after filtering: 437
+
+ cluster  grade  real_mean   real_std   imag_mean   imag_std imag_coeff_of_var alpha_mean alpha_std theta_mean theta_std epsilon  size cluster_size_percentage
+   1       1    5.878104e+00 2.28e-04 -3.169139e-03 1.85e-04        5.85        2.13e+00   4.84e-04 -3.45e-03   2.51e-04  0.050    44           10.07         
