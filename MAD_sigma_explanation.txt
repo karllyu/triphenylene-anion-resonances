@@ -4,7 +4,9 @@ Worked through on Automatic-RVP data, A2_root4_fit2
 ================================================================================
 
 Notation used throughout:
-    x            a single value (here, the 'imag' column of clustering_input.csv)
+    x            a single value -- here the 'imag' column of
+                 clustering_input.csv, i.e. the imaginary part of a complex
+                 resonance energy (-Gamma/2), one per Pade window
     median(x)    the middle value of the sorted list
     MAD          Median Absolute Deviation = median( |x - median(x)| )
     MAD-sigma    1.4826 x MAD          (also called "robust sigma")
@@ -16,7 +18,27 @@ Notation used throughout:
 1. THE PROBLEM YOU ARE TRYING TO SOLVE
 --------------------------------------------------------------------------------
 
-You have 308 Pade roots. Most are the real resonance. A handful are numerical
+A2_root4_fit2 produces 633 Pade roots in clustering_input.csv; the existing
+relative-error filter at src/clustering.py line 30 (|imag_err/imag| < 0.25)
+cuts that to 308. Those 308 are the set used everywhere in this document, and
+every percentage quoted below is relative to them, not to the raw 633. The MAD
+trim described here is a SECOND filter, applied to the 308 survivors.
+
+WHAT THE 308 VALUES ARE:
+    Each row of clustering_input.csv is one complex resonance energy, obtained
+    by evaluating a Pade approximant at its stationary point over one window of
+    the stable zone (src/pade.py lines 70-71):
+
+        real = E_r            the resonance position
+        imag = -Gamma/2       the imaginary part of the same complex energy
+
+    src/pade.py line 82 keeps only imag < 0, which is why every value below is
+    negative. The 308 are 308 INDEPENDENT ESTIMATES OF THE SAME PHYSICAL
+    QUANTITY, each from a different Pade window. That is what makes the outlier
+    question meaningful: they should all agree, so the ones that do not are
+    numerical failures, not physics.
+
+So: most of the 308 are the real resonance, and a handful are numerical
 garbage. You want a rule that says "this point is too far out, drop it."
 
 Any such rule needs exactly two things:
@@ -29,8 +51,12 @@ Everything else follows from that choice.
 
 
 --------------------------------------------------------------------------------
-2. THE OBVIOUS CHOICE, AND WHY IT FAILS
+2. THE OBVIOUS CHOICE, AND WHY IT FAILS *ON CONTAMINATED DATA*
 --------------------------------------------------------------------------------
+
+NOTE: everything below is conditional on contamination being present. On CLEAN
+data the mean and std are not merely acceptable, they are strictly BETTER than
+the median and MAD. See section 10(b).
 
 The textbook answer is center = MEAN, ruler = STANDARD DEVIATION.
 For the 308 imag values in A2_root4_fit2:
@@ -104,20 +130,21 @@ STEP 3 -- RULER = THE MEDIAN OF THOSE DISTANCES.
     of the sorted list?" Making a big value even bigger does not move it out of
     last place, so nothing changes.
 
-STEP 4 -- THE 1.4826 FACTOR.
+STEP 4 -- THE 1.4826 FACTOR (SEE THE CORRECTION IN SECTION 10).
 
-    The MAD is a perfectly good spread measure, but it is on a different scale
-    than std, so "MAD = 3" does not mean what "std = 3" means. For clean
-    Gaussian data, MAD comes out to about 0.6745 x sigma. Divide by that
-    (equivalently multiply by 1/0.6745 = 1.4826) and you get something that
-    lands on the same number std would give for clean data:
+    The MAD is on a different scale than std. Multiplying by 1.4826 rescales it
+    so that "6 sigma" evokes a familiar magnitude:
 
         MAD-sigma = 1.4826 x 2.139e-04 = 3.171e-04
 
-    That is the ONLY purpose of the constant: a unit conversion, so that
-    "6 sigma" keeps its familiar meaning. On genuinely clean Gaussian data,
-    MAD-sigma and std agree to about three decimals (verified: 1.0022 vs
-    1.0012 on a clean Gaussian sample).
+    This is a NAMING CONVENTION, NOT A COMPUTATION. The factor is the scipy /
+    astropy standard (scipy.stats.median_abs_deviation(x, scale='normal')
+    returns exactly 1.482602218505602 x MAD), which is why it is worth keeping
+    -- it makes the threshold parameter portable and recognizable.
+
+    But it is absorbed entirely into the threshold k, and the procedure is
+    INVARIANT to dropping it. Do not read it as a claim about the data.
+    Section 10 gives the proof and the correction.
 
 
 --------------------------------------------------------------------------------
@@ -219,7 +246,9 @@ honest.
 Nothing above changes what gets REPORTED. MAD-sigma is used purely as a
 DETECTOR, not as a replacement for any statistic in the output. The flow is:
 
-    1. MAD-sigma identifies the 13 bad rows and drops them.
+    1. MAD-sigma identifies the bad rows and drops them. For A2_root4_fit2:
+       13 flagged on 'imag', 14 flagged on 'real', 16 in the union (11 rows are
+       bad in both). 308 - 16 = 292 rows survive. See section 8.
 
     2. StandardScaler (src/clustering.py line 33) then computes its ORDINARY
        std on the survivors -- and that std is now 3.28e-04 instead of
@@ -238,15 +267,204 @@ physics.
 
 
 --------------------------------------------------------------------------------
-8. THE RULE IN CODE FORM
+8. WHICH COLUMNS ARE FILTERED: BOTH real AND imag
 --------------------------------------------------------------------------------
 
-    med = np.median(x)
-    mad_sigma = 1.4826 * np.median(np.abs(x - med))
-    outlier = np.abs(x - med) > k * mad_sigma        # k = 6
+Sections 1-7 walked through the 'imag' column alone, for clarity. The actual
+rule is applied INDEPENDENTLY TO BOTH 'real' AND 'imag', and a row is dropped
+if it is an outlier in EITHER one (a union, not an intersection).
 
-Applied to the 'real' and 'imag' columns only (the two DBSCAN actually
-clusters on), union across the two, single pass, with a guard to skip the
-column if mad_sigma == 0.
+That is not belt-and-braces. The two columns fail independently, and which one
+fails depends on the dataset. Points flagged at k = 6, broken down by which
+column caught them:
+
+    dataset            n | real only  imag only  both |  union
+    -----------------------------------------------------------
+    A2_root1_fit1    421 |         0          7     1 |      8
+    A2_root2_fit1    451 |         0          9     0 |      9
+    A2_root2_fit2    367 |        84          1    11 |     96
+    A2_root3_fit1    292 |        27          6     3 |     36
+    A2_root3_fit2    300 |         1          7     9 |     17
+    A2_root4_fit1    569 |         0         70     0 |     70
+    A2_root4_fit2    308 |         3          2    11 |     16
+
+    A2_root2_fit2 WOULD BE ALMOST ENTIRELY MISSED by an imag-only rule: 84 of
+    its 96 bad points are outliers in energy POSITION while their widths look
+    perfectly reasonable. Same story in A2_root3_fit1 (27 of 36).
+
+    A2_root4_fit1 is the mirror image: all 70 are width-only, position clean.
+
+    Note the 'both' column is small everywhere. Most junk Pade roots are wrong
+    in exactly ONE coordinate, which is precisely why the union is required.
+
+THE std/MAD-sigma RATIO IS A FREE CONTAMINATION METER
+-----------------------------------------------------
+
+Comparing each column's ordinary std against its MAD-sigma tells you, before
+dropping anything, whether that column is contaminated at all. A ratio near 1
+means the two estimators agree, so nothing is skewing the std.
+
+    dataset          col    MAD-sigma          std   std/MADsig
+    ------------------------------------------------------------
+    A2_root1_fit1    real  2.2571e-05   1.9807e-05          0.9   clean
+    A2_root1_fit1    imag  7.2082e-06   1.4208e-05          2.0
+    A2_root2_fit1    real  3.8351e-03   4.9667e-03          1.3
+    A2_root2_fit1    imag  1.1725e-03   2.0842e-03          1.8
+    A2_root2_fit2    real  4.9862e-05   4.6356e-02        929.7   <-- worst
+    A2_root2_fit2    imag  4.3821e-04   1.9812e-02         45.2
+    A2_root3_fit1    real  1.2989e-03   5.1204e-02         39.4
+    A2_root3_fit1    imag  6.6532e-04   8.1170e-02        122.0
+    A2_root3_fit2    real  7.8614e-04   5.1112e-02         65.0
+    A2_root3_fit2    imag  5.0135e-04   6.5826e-02        131.3
+    A2_root4_fit1    real  9.8278e-03   8.0574e-03          0.8   clean
+    A2_root4_fit1    imag  8.2874e-04   4.0044e-03          4.8
+    A2_root4_fit2    real  6.3945e-04   7.7746e-02        121.6
+    A2_root4_fit2    imag  3.1710e-04   9.4704e-02        298.7
+
+    A2_root2_fit2 'real' at 930 is the worst case in the whole set: the honest
+    spread of the energy position is 5.0e-05, while the std reports 4.6e-02, a
+    thousand times larger.
+
+THE RULE IS SELF-LIMITING
+-------------------------
+
+    The two columns with a ratio BELOW 1 -- A2_root1_fit1 'real' and
+    A2_root4_fit1 'real', where MAD-sigma is actually LARGER than std -- flag
+    exactly ZERO real-only points (see the table above). Those columns have a
+    broad but genuine spread, and the trim correctly leaves them alone.
+
+    The filter only cuts where there is something to cut. It does not eat into
+    healthy columns.
+
+WHY NOT alpha AND theta
+-----------------------
+
+    (a) DBSCAN never clusters on them. src/clustering.py line 80 fits on
+        scaled_data[['real','imag']] only, so the scale of alpha and theta
+        cannot affect the epsilon sweep.
+
+    (b) theta is an ANGLE. A median absolute deviation is meaningless if the
+        values ever straddle the +/-pi branch cut.
+
+    alpha and theta are carried through unchanged and reported for whichever
+    rows survive the real/imag cut.
+
+
+--------------------------------------------------------------------------------
+9. THE RULE IN CODE FORM
+--------------------------------------------------------------------------------
+
+    drop = pd.Index([])
+    for col in ['real', 'imag']:                     # BOTH columns
+        med = np.median(c[col].values)
+        mad_sigma = 1.4826 * np.median(np.abs(c[col].values - med))
+        if mad_sigma <= 0:                           # degenerate-data guard
+            continue
+        drop = drop.union(c.index[np.abs(c[col] - med) > k * mad_sigma])
+    cleaned = c.drop(drop)
+
+    with k = 6.
+
+Properties of this rule:
+    - applied to 'real' and 'imag' only
+    - UNION across the two columns (drop if bad in either)
+    - single pass, no iteration (see section 4: the MAD is not corrupted, so
+      there is nothing to converge toward)
+    - guard skips a column whose MAD-sigma is zero, which happens if more than
+      half the rows share an identical value
+    - inserted between src/clustering.py line 30 (the existing imag_err
+      filter) and line 33 (StandardScaler)
+
+
+--------------------------------------------------------------------------------
+10. CORRECTION: TWO THINGS SECTIONS 2 AND 3 STATED MISLEADINGLY
+--------------------------------------------------------------------------------
+
+MISLEADING CLAIM 1: that the mean is simply a bad centre.
+MISLEADING CLAIM 2: that the 1.4826 factor "makes MAD-sigma agree with std",
+                    which implies the data is Gaussian and that the factor does
+                    real work. Neither is true.
+
+(a) THE DATA IS NOT GAUSSIAN.
+
+    Shapiro-Wilk on the k=6 core rejects normality in every column of every
+    dataset, p from 8e-07 down to 5e-24. Skew runs -1.77 to +0.87, excess
+    kurtosis -1.09 to +3.44.
+
+    The shape is a hard-walled, one-sided, skewed distribution. The upper wall
+    is PHYSICAL, not statistical: src/pade.py line 82 enforces imag < 0, and
+    Gamma > 0. The wall position predicts the observed cutoff exactly:
+
+        dataset          imag=0 in MAD-sigma    last populated bin
+        A2_root1_fit1          +1.26            [+0.5, +1.5)
+        A2_root2_fit1          +1.09            [+0.5, +1.5)
+        A2_root3_fit1          +1.94            [+1.5, +2.5)
+        A2_root3_fit2          +1.08            [+0.5, +1.5)
+        A2_root4_fit1          +2.50            [+1.5, +2.5)
+        A2_root4_fit2          +1.94            [+1.5, +2.5)
+
+(b) ON CLEAN GAUSSIAN DATA THE MEAN AND STD WOULD BE *BETTER*, NOT EQUAL.
+
+    Monte Carlo, n=300, 4000 trials, RMSE of the estimate:
+
+        contamination          mean    median  |     std   MAD-sigma
+        none (pure Gaussian)  0.058     0.073  |   0.041       0.067   <- mean/std win
+        0.5% junk             4.754     0.073  |  80.38        0.068
+        4% junk (this data)  11.435     0.073  | 198.37        0.084
+
+    The median is ~1.3x WORSE than the mean on clean Gaussian data, and
+    MAD-sigma ~1.6x worse than std. Those are real, known efficiency costs.
+
+    THE JUSTIFICATION IS CONTAMINATION, NOT SHAPE. The crossover happens below
+    0.5% junk, where the median already wins by 65x and MAD-sigma by 1184x. At
+    the ~4% contamination in this data it is 156x and 2370x. Sections 2 and 4
+    are correct about the mechanism; they simply omitted that the advantage is
+    conditional on contamination being present.
+
+(c) THE 1.4826 IS INERT. IT IS A REPARAMETERIZATION, NOT A COMPUTATION.
+
+    The threshold is k * 1.4826 * MAD. Only the PRODUCT reaches the comparison,
+    so the constant folds into k:
+
+        k = 6      WITH the constant     ==     k = 8.8956  WITHOUT it
+
+    Verified: both drop the identical rows in all seven datasets.
+
+    The constant would be load-bearing in exactly two situations, and NEITHER
+    applies here:
+
+        1. If k were derived from Gaussian tail probability ("reject at 1 in
+           1e9, therefore k=6"). It was not -- k=6 was chosen EMPIRICALLY by
+           sweeping k and observing which value rescued A2_root3_fit2.
+
+        2. If MAD-sigma were reported as an uncertainty. It is not -- it never
+           leaves the detection step. The imag_coeff_of_var in output.dat is an
+           ordinary std/mean computed downstream on the surviving cluster.
+
+    Because both are false, non-normality cannot corrupt anything. A wrong
+    calibration constant is mathematically identical to a different k, and the
+    results were already shown stable across k = 6 to 20, a 3.3x range.
+
+    The constant is kept only because it is the scipy/astropy convention, which
+    makes k portable and recognizable. That is a legibility argument, not a
+    statistical one.
+
+(d) THE TRIM ELIMINATES ITS OWN JUSTIFICATION, WHICH IS THE RIGHT BEHAVIOUR.
+
+    After the k=6 trim, mean and median agree to 0.02-0.32 std and std/MAD-sigma
+    falls to 0.7-2.1 in six of seven datasets. The choice of centre stops
+    mattering once the contamination is gone -- exactly as the Gaussian
+    intuition predicts.
+
+    EXCEPTION: A2_root2_fit2 still shows std/MAD-sigma = 92 (real) and 379
+    (imag) AFTER trimming. Its core is not "good population plus outliers" but
+    genuinely multi-scale. This is the explanation for the anomaly noted
+    elsewhere: root2_fit2 is the one dataset whose CoV DEGRADES at k=6
+    (3.96% -> 6.42%). Treat its result with more suspicion than the others.
+
+(e) SAFETY CHECK.
+
+    Every cluster the pipeline reports on untrimmed data falls INSIDE the k=6
+    window, in all four currently-working runs. The trim does not cut physics.
 
 ================================================================================
